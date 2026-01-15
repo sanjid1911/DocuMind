@@ -1,7 +1,9 @@
 streamlit
 langchain
 langchain-community
+langchain-chroma
 langchain-huggingface
 chromadb
 pypdf
 python-dotenv
+huggingface-hub
