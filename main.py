@@ -1,99 +1,97 @@
+# -------------------------------------------------------------------------
+# 1. FIX: SQLite Hack for Streamlit Cloud (MUST BE AT THE VERY TOP)
+# -------------------------------------------------------------------------
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    # If we are running locally and don't have pysqlite3, that's fine.
+    pass
+
+# -------------------------------------------------------------------------
+# 2. Imports
+# -------------------------------------------------------------------------
 import streamlit as st
 import os
+import tempfile
+
+# -------------------------------------------------------------------------
+# 3. FIX: Load API Key from Streamlit Secrets (Cloud) or .env (Local)
+# -------------------------------------------------------------------------
+# Try loading from .env first (for local dev)
 from dotenv import load_dotenv
+load_dotenv()
+
+# If on Cloud, overwrite with the Secret Key
+if "HUGGINGFACEHUB_API_TOKEN" in st.secrets:
+    os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
+
+# -------------------------------------------------------------------------
+# 4. Import Internal Modules (After setting env vars)
+# -------------------------------------------------------------------------
 from src.ingestion import process_documents
 from src.rag_engine import get_rag_chain
 
-# Load environment variables (API Keys)
-load_dotenv()
+# -------------------------------------------------------------------------
+# 5. The App UI
+# -------------------------------------------------------------------------
+st.set_page_config(page_title="DocuMind", page_icon="🧠")
 
-# --- 1. Page Configuration ---
-st.set_page_config(
-    page_title="DocuMind | Cloud RAG",
-    page_icon="☁️",
-    layout="wide",
-    initial_sidebar_state="expanded"  # <--- Forces sidebar to be OPEN
-)
+st.title("🧠 DocuMind: Chat with your PDF")
 
-# --- 2. Load Custom CSS ---
-def local_css(file_name):
-    if os.path.exists(file_name):
-        with open(file_name) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-
-local_css("assets/style.css")
-
-# --- 3. Sidebar UI ---
-with st.sidebar:
-    # Logo Fix: Safely load logo or skip if missing
-    if os.path.exists("assets/logo.png"):
-        try:
-            st.image("assets/logo.png", width=60)
-        except Exception:
-            pass 
-            
-    st.title("📂 Document Hub")
-    st.markdown("Upload PDFs to power the cloud brain.")
-    
-    # File Uploader
-    uploaded_files = st.file_uploader(
-        "Upload PDF files", 
-        type="pdf", 
-        accept_multiple_files=True
-    )
-    
-    # Process Button
-    if st.button("🔄 Process Documents"):
-        if uploaded_files:
-            with st.spinner("Analyzing & Embedding documents..."):
-                # Check for API Key before processing
-                if not os.environ.get("HUGGINGFACEHUB_API_TOKEN"):
-                    st.error("❌ API Key missing! Check your .env file.")
-                else:
-                    success = process_documents(uploaded_files)
-                    if success:
-                        st.success("✅ Knowledge Base Updated!")
-                    else:
-                        st.error("Failed to process documents.")
-        else:
-            st.warning("Please upload a file first.")
-    
-    st.markdown("---")
-    st.markdown("### ⚙️ System Status")
-    st.success("☁️ Cloud Engine: Active")
-    st.caption("• Model: Zephyr 7B (HF API)")
-
-# --- 4. Main Chat Interface ---
-st.title("☁️ DocuMind Cloud")
-st.markdown("#### Intelligent Document Assistant")
-
+# Initialize Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display Chat History
+# Sidebar for Upload
+with st.sidebar:
+    st.header("📂 Document Upload")
+    uploaded_files = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+    
+    if st.button("Process Documents"):
+        if not uploaded_files:
+            st.warning("Please upload a PDF first.")
+        else:
+            with st.spinner("Processing documents..."):
+                try:
+                    # Save uploaded files to temp directory
+                    temp_dir = tempfile.mkdtemp()
+                    file_paths = []
+                    for uploaded_file in uploaded_files:
+                        file_path = os.path.join(temp_dir, uploaded_file.name)
+                        with open(file_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        file_paths.append(file_path)
+                    
+                    # Run Ingestion
+                    process_documents(file_paths)
+                    st.success("✅ Documents processed! You can now chat.")
+                
+                except Exception as e:
+                    # ✅ IMPROVED ERROR MESSAGE: Show the real error
+                    st.error(f"❌ An error occurred during processing: {e}")
+                    # Print detailed traceback for debugging
+                    import traceback
+                    st.text(traceback.format_exc())
+
+# Chat Interface
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Handle User Input
 if prompt := st.chat_input("Ask a question about your documents..."):
+    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Generate Response
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
         try:
-            # Get the Cloud Chain
             chain = get_rag_chain()
-            
-            # Run the chain (Standard invoke is safer for Free Cloud API)
-            full_response = chain.invoke(prompt)
-            
-            message_placeholder.markdown(full_response)
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            
+            response = chain.invoke(prompt)
+            st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error generating response: {e}")

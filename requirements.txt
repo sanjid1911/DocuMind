@@ -7,3 +7,4 @@ chromadb
 pypdf
 python-dotenv
 huggingface-hub
+pysqlite3-binary
