@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+env/
+venv/
+.venv/
+
+# Database (Don't push the heavy vector store)
+db/
+chroma_db/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
